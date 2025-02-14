@@ -1,0 +1,102 @@
+function onOpen() {
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('Data Tools')
+      .addItem('Process New Data', 'processNewData')
+      .addToUi();
+}
+
+function processNewData() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var rawDataSheet = ss.getSheetByName('Raw Data');
+  var newDataSheet = ss.getSheetByName('New Imports');
+  
+  // Get headers and data from both sheets
+  var rawHeaders = rawDataSheet.getRange(1, 1, 1, rawDataSheet.getLastColumn()).getValues()[0];
+  var newHeaders = newDataSheet.getRange(1, 1, 1, newDataSheet.getLastColumn()).getValues()[0];
+  
+  // Get LinkedIn URL column indices
+  var rawLinkedInCol = rawHeaders.indexOf('linkedinProfileUrl');
+  var newLinkedInCol = newHeaders.indexOf('linkedinProfileUrl');
+  
+  if (rawLinkedInCol === -1 || newLinkedInCol === -1) {
+    SpreadsheetApp.getUi().alert('Error: linkedinProfileUrl column not found in one or both sheets');
+    return;
+  }
+  
+  // Check/add timestamp header
+  var timestampColIndex = rawHeaders.indexOf('import_timestamp');
+  if (timestampColIndex === -1) {
+    // Add timestamp header at the end
+    timestampColIndex = rawHeaders.length;
+    rawDataSheet.getRange(1, timestampColIndex + 1).setValue('import_timestamp');
+    rawHeaders.push('import_timestamp'); // Update our headers array
+  }
+  
+  // Get existing data
+  var rawData = rawDataSheet.getDataRange().getValues();
+  var newData = newDataSheet.getDataRange().getValues();
+  
+  // Create map of existing LinkedIn URLs
+  var existingUrls = new Map();
+  for (var i = 1; i < rawData.length; i++) {
+    var linkedInUrl = rawData[i][rawLinkedInCol];
+    if (linkedInUrl) existingUrls.set(linkedInUrl.toLowerCase(), true);
+  }
+  
+  // Process new data
+  var newRows = [];
+  var timestamp = new Date();
+  var duplicatesSkipped = 0;
+  var recordsAdded = 0;
+  
+  for (var i = 1; i < newData.length; i++) {
+    var row = newData[i];
+    var linkedInUrl = row[newLinkedInCol];
+    
+    // If LinkedIn URL exists and is a duplicate, skip
+    if (linkedInUrl && existingUrls.has(linkedInUrl.toLowerCase())) {
+      duplicatesSkipped++;
+      continue;
+    }
+    
+    // Create new row with correct length
+    var newRow = row.slice(0, rawHeaders.length);
+    // Ensure row is long enough
+    while (newRow.length < timestampColIndex) {
+      newRow.push('');
+    }
+    // Add timestamp at correct column
+    newRow[timestampColIndex] = timestamp;
+    
+    newRows.push(newRow);
+    recordsAdded++;
+    
+    // Add to existing URLs map if URL exists
+    if (linkedInUrl) {
+      existingUrls.set(linkedInUrl.toLowerCase(), true);
+    }
+  }
+  
+  // If we have new data to add
+  if (newRows.length > 0) {
+    // Append new rows
+    rawDataSheet.getRange(
+      rawDataSheet.getLastRow() + 1, 
+      1, 
+      newRows.length, 
+      rawHeaders.length
+    ).setValues(newRows);
+  }
+  
+  // Clear new imports sheet (keeping headers)
+  if (newDataSheet.getLastRow() > 1) {
+    newDataSheet.getRange(2, 1, newDataSheet.getLastRow() - 1, newDataSheet.getLastColumn()).clear();
+  }
+  
+  // Show detailed results
+  SpreadsheetApp.getUi().alert(
+    'Import Complete:\n' +
+    recordsAdded + ' new records added\n' +
+    duplicatesSkipped + ' duplicates skipped'
+  );
+}
